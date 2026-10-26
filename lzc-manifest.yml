@@ -1,0 +1,15 @@
+application:
+  subdomain: ediary
+  background_task: true
+  multi_instance: false
+  upstreams:
+    - location: /
+      backend: http://127.0.0.1:10022/
+      backend_launch_command: /bin/sh /lzcapp/pkg/content/start.sh
+      disable_trim_location: true
+  health_check:
+    test_url: http://127.0.0.1:10022/healthz
+    start_period: 30s
+    timeout: 5s
+
+usage: "首次使用请访问 /admin 完成管理员设置；数据保存在 /lzcapp/var/ediary，请定期备份。应用内为回环 HTTP，外部 HTTPS 由懒猫平台代理终止。"

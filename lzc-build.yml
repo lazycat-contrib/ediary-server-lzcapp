@@ -1,0 +1,4 @@
+# Metadata inspection only: this repository publishes prebuilt LPKs.
+manifest: ./lzc-manifest.yml
+pkgout: ./dist
+icon: ./icon.png

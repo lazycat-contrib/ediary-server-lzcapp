@@ -1,0 +1,29 @@
+version: 1
+project:
+  root: .
+  build_config: lzc-build.yml
+  package_file: package.yml
+  output: dist/application.lpk
+  target_arch: amd64
+update:
+  sync_homepage: false
+  sync_license: false
+  strategy: publish
+  allow_downgrade: false
+  version_source:
+    type: git
+build:
+  run_buildscript: false
+images: []
+release:
+  use_github_release_notes: true
+  store_changelog_format: plain
+stores:
+  official:
+    enabled: false
+  private:
+    # The workflow uses dry-run for verification. Actual publication is opt-in
+    # through the PUBLISH_PRIVATE_STORE repository variable.
+    enabled: true
+    skip_if_version_exists: true
+    name: eDiary 服务端

@@ -1,0 +1,19 @@
+package: cloud.lazycat.app.ediary-server
+version: 0.1.1
+name: eDiary 服务端
+description: 自托管的 eDiary 日记同步服务，内置管理控制台与 SQLite 存储。
+author: ca-x
+# The repository does not currently declare an open-source license.
+license: UNLICENSED
+homepage: https://github.com/lazycat-contrib/ediary-server-lzcapp
+min_os_version: 1.5.0
+locales:
+  zh-CN:
+    name: eDiary 服务端
+    description: 自托管的 eDiary 日记同步服务，内置管理控制台与 SQLite 存储。
+  en:
+    name: eDiary Server
+    description: Self-hosted eDiary sync server with a management console and SQLite storage.
+# SQLite and internal state use /lzcapp/var, not private user documents.
+permissions:
+  required: []

@@ -1,0 +1,115 @@
+name: Publish prebuilt LPK
+
+on:
+  workflow_dispatch:
+    inputs:
+      source-run-id:
+        description: Optional source build run ID (empty selects the latest successful main push)
+        type: string
+        default: ''
+      dry-run:
+        description: Download and validate only; do not create a Release or publish to a store
+        type: boolean
+        default: true
+  schedule:
+    - cron: '17,47 * * * *'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-prebuilt-lpk
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check source configuration
+        env:
+          SOURCE_REPOSITORY: ${{ secrets.LPK_SOURCE_REPOSITORY }}
+          SOURCE_REPO_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SOURCE_REPOSITORY}" ]]; then
+            echo 'Set Actions secret LPK_SOURCE_REPOSITORY in this publication repository.' >&2
+            exit 1
+          fi
+          if [[ -z "${SOURCE_REPO_TOKEN}" ]]; then
+            echo 'Set SOURCE_REPO_TOKEN in this publication repository: source repository only, Actions: Read.' >&2
+            exit 1
+          fi
+
+      - name: Select a successful private-source build
+        id: source
+        uses: actions/github-script@v9
+        env:
+          SOURCE_REPOSITORY: ${{ secrets.LPK_SOURCE_REPOSITORY }}
+          SOURCE_BRANCH: ${{ vars.LPK_SOURCE_BRANCH || 'main' }}
+          SOURCE_RUN_ID: ${{ inputs.source-run-id }}
+        with:
+          github-token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          script: |
+            await require('./scripts/release.cjs').selectSource({github, core});
+
+      - name: Download only the LPK artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ steps.source.outputs.artifact-name }}
+          path: dist/import
+          repository: ${{ secrets.LPK_SOURCE_REPOSITORY }}
+          run-id: ${{ steps.source.outputs.run-id }}
+          github-token: ${{ secrets.SOURCE_REPO_TOKEN }}
+
+      - name: Reject source files and prepare the versioned asset
+        id: package
+        env:
+          LPK_VERSION: ${{ steps.source.outputs.version }}
+        run: python3 scripts/prepare-lpk.py
+
+      - name: Verify package ID, version, architecture and SHA256
+        uses: ca-x/lazycat-github-action@v1.3.6
+        with:
+          operation: publish-private
+          config: .github/lazycat-action.yml
+          version: ${{ steps.source.outputs.version }}
+          changelog: Release ${{ steps.source.outputs.version }}
+          lpk-path: ${{ steps.package.outputs.lpk-path }}
+          download-url: ${{ github.server_url }}/${{ github.repository }}/releases/download/v${{ steps.source.outputs.version }}/cloud.lazycat.app.ediary-server-v${{ steps.source.outputs.version }}.lpk
+          sha256: ${{ steps.package.outputs.sha256 }}
+          dry-run: true
+
+      - name: Publish verified LPK in this repository
+        if: github.event_name == 'schedule' || !inputs.dry-run
+        id: release
+        uses: actions/github-script@v9
+        env:
+          LPK_VERSION: ${{ steps.source.outputs.version }}
+          LPK_PATH: ${{ steps.package.outputs.lpk-path }}
+          LPK_SHA256: ${{ steps.package.outputs.sha256 }}
+        with:
+          script: |
+            await require('./scripts/release.cjs').publishRelease({github, context, core});
+
+      - name: Publish to the MiaoMiao store when enabled
+        if: steps.release.outputs.download-url != '' && vars.PUBLISH_PRIVATE_STORE == 'true'
+        uses: ca-x/lazycat-github-action@v1.3.6
+        env:
+          APPSTORE_URL: ${{ secrets.APPSTORE_URL }}
+          APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
+          APP_ID: ${{ secrets.APP_ID }}
+          PRIVATE_STORE_GROUP_CODES: ${{ secrets.PRIVATE_STORE_GROUP_CODES }}
+        with:
+          operation: publish-private
+          config: .github/lazycat-action.yml
+          version: ${{ steps.source.outputs.version }}
+          changelog: ${{ steps.release.outputs.changelog }}
+          lpk-path: ${{ steps.package.outputs.lpk-path }}
+          download-url: ${{ steps.release.outputs.download-url }}
+          sha256: ${{ steps.package.outputs.sha256 }}
