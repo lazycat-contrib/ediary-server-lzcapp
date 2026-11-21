@@ -1,5 +1,5 @@
 package: cloud.lazycat.app.ediary-server
-version: 0.1.1
+version: 0.2.1
 name: eDiary 服务端
 description: 自托管的 eDiary 日记同步服务，内置管理控制台与 SQLite 存储。
 author: ca-x

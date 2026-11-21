@@ -1,0 +1,84 @@
+name: Sync published Release to the MiaoMiao store
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version of the latest published Release to sync
+        required: true
+        type: string
+      dry-run:
+        description: Verify the published package without updating the store
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-prebuilt-lpk
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main' && vars.PUBLISH_PRIVATE_STORE == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Resolve the expected asset in the latest published Release
+        id: release
+        uses: actions/github-script@v9
+        env:
+          VERSION: ${{ inputs.version }}
+        with:
+          script: |
+            const {data: release} = await github.rest.repos.getLatestRelease(context.repo);
+            const version = process.env.VERSION;
+            const tag = 'v' + version;
+            if (!/^\d+\.\d+\.\d+$/.test(version) || release.tag_name !== tag || release.draft || release.prerelease) {
+              throw new Error('The requested version must match the latest published stable Release');
+            }
+            const name = 'cloud.lazycat.app.ediary-server-' + tag + '.lpk';
+            const assets = release.assets.filter(asset => asset.name === name);
+            if (assets.length !== 1 || !/^sha256:[0-9a-f]{64}$/.test(assets[0].digest)) {
+              throw new Error('The versioned LPK must have a GitHub SHA256 digest');
+            }
+            core.setOutput('name', name);
+            core.setOutput('sha256', assets[0].digest.slice(7));
+            core.setOutput('url', assets[0].browser_download_url);
+            core.setOutput('notes', release.body || tag);
+
+      - name: Read back the LPK and verify its contents and checksums
+        id: package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LPK_VERSION: ${{ inputs.version }}
+          ASSET_NAME: ${{ steps.release.outputs.name }}
+          EXPECTED_SHA: ${{ steps.release.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          gh release download "v$LPK_VERSION" -R "$GITHUB_REPOSITORY" -D dist/import -p "$ASSET_NAME" -p checksums.txt
+          python3 scripts/prepare-lpk.py
+          cmp dist/checksums.txt dist/import/checksums.txt
+          printf '%s  %s\n' "$EXPECTED_SHA" "dist/$ASSET_NAME" | sha256sum --check --strict
+
+      - name: Sync verified Release to the store
+        uses: ca-x/lazycat-github-action@v1.3.6
+        env:
+          APPSTORE_URL: ${{ secrets.APPSTORE_URL }}
+          APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
+          APP_ID: ${{ secrets.APP_ID }}
+          PRIVATE_STORE_GROUP_CODES: ${{ secrets.PRIVATE_STORE_GROUP_CODES }}
+        with:
+          operation: publish-private
+          config: .github/lazycat-action.yml
+          version: ${{ inputs.version }}
+          changelog: ${{ steps.release.outputs.notes }}
+          lpk-path: ${{ steps.package.outputs.lpk-path }}
+          download-url: ${{ steps.release.outputs.url }}
+          sha256: ${{ steps.release.outputs.sha256 }}
+          dry-run: ${{ inputs.dry-run }}
